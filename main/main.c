@@ -51,8 +51,8 @@ typedef struct {
 } ds4_input_t;
 
 void parse_ds4(uint8_t *d);
-void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
-void l2cap_cb(esp_bt_l2cap_cb_event_t event, esp_bt_l2cap_cb_param_t *param);
+static void ds4_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
+static void ds4_l2cap_cb(esp_bt_l2cap_cb_event_t event, esp_bt_l2cap_cb_param_t *param);
 void ds4_read_task(void *arg);
 
 static void start_scan(void);
@@ -156,13 +156,13 @@ void bt_init(void)
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_bt_controller_init(&bt_cfg));
-    ESP_ERROR_CHECK(esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT));
+    ESP_ERROR_CHECK(esp_bt_controller_enable(ESP_BT_MODE_BTDM));
 
     ESP_ERROR_CHECK(esp_bluedroid_init());
     ESP_ERROR_CHECK(esp_bluedroid_enable());
 
-    ESP_ERROR_CHECK(esp_bt_gap_register_callback(gap_cb));
-    ESP_ERROR_CHECK(esp_bt_l2cap_register_callback(l2cap_cb));
+    ESP_ERROR_CHECK(esp_bt_gap_register_callback(ds4_gap_cb));
+    ESP_ERROR_CHECK(esp_bt_l2cap_register_callback(ds4_l2cap_cb));
 
     esp_bt_pin_code_t pin_code = {'1', '2', '3', '4'};
     ESP_ERROR_CHECK(esp_bt_gap_set_pin(ESP_BT_PIN_TYPE_FIXED, 4, pin_code));
@@ -179,7 +179,7 @@ void bt_init(void)
     printf("Bluetooth Classic habilitado. Aguardando ESP_BT_L2CAP_INIT_EVT...\n");
 }
 
-void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
+static void ds4_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch (event) {
         case ESP_BT_GAP_DISC_RES_EVT: {
@@ -265,7 +265,7 @@ void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
     }
 }
 
-void l2cap_cb(esp_bt_l2cap_cb_event_t event, esp_bt_l2cap_cb_param_t *param)
+static void ds4_l2cap_cb(esp_bt_l2cap_cb_event_t event, esp_bt_l2cap_cb_param_t *param)
 {
     switch (event) {
         case ESP_BT_L2CAP_INIT_EVT:

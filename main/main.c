@@ -355,7 +355,7 @@ void ds4_read_task(void *arg)
             int len = read(fd_interrupt, buffer, sizeof(buffer));
 
             if (len > 0) {
-                if (buffer[0] != 0x01) {
+                if (buffer[0] != 0xA1) {
                     printf("Relatório: 0x%02X\n", buffer[0]);
                     continue;
                 }
@@ -374,38 +374,48 @@ void ds4_read_task(void *arg)
 
 void parse_ds4(uint8_t *d)
 {
-    uint8_t lx = d[1];
-    uint8_t ly = d[2];
+    printf("Entrou no parse_ds4 com o relatório 0x%02X\n", d[0]);
 
-    uint8_t b1 = d[5];
-    uint8_t b2 = d[6];
+    uint8_t b1 = d[8];
+    uint8_t b2 = d[9];
 
-    uint8_t l2 = d[8];
-    uint8_t r2 = d[9];
+    /* while(1){
+        if (d[4] != 128 || d[5] != 128) printf("LX:%3d LY:%3d | ", d[4], d[5]);
 
-    bool square   = b1 & (1 << 4);
-    bool cross    = b1 & (1 << 5);
-    bool circle   = b1 & (1 << 6);
-    bool triangle = b1 & (1 << 7);
+        if (b1 & (1 << 4))   printf("[ ] ");
+        if (b1 & (1 << 5))    printf("X ");
+        if (b1 & (1 << 6))   printf("O ");
+        if (b1 & (1 << 7)) printf("/\\ ");
 
-    bool l1 = b2 & (1 << 0);
-    bool r1 = b2 & (1 << 1);
-    bool l3 = b2 & (1 << 6);
+        if (b2 & (1 << 0)) printf("L1 ");
+        if (b2 & (1 << 1)) printf("R1 ");
+        if (b2 & (1 << 6)) printf("L3 ");
 
-    printf("LX:%3d LY:%3d | ", lx, ly);
+        if (d[11] != 0 || d[12] != 0) printf("L2:%3d R2:%3d", d[11], d[12]);
+        printf("                \r");
+        fflush(stdout);
 
-    if (square)   printf("[ ] ");
-    if (cross)    printf("X ");
-    if (circle)   printf("O ");
-    if (triangle) printf("/\\ ");
+        vTaskDelay(pdMS_TO_TICKS(100)); 
+    } */
 
-    if (l1) printf("L1 ");
-    if (r1) printf("R1 ");
-    if (l3) printf("L3 ");
+    while(1){
+        if (d[4] != 128 || d[5] != 128) printf("LX:%3d LY:%3d | ", d[4], d[5]);
 
-    printf("L2:%3d R2:%3d", l2, r2);
-    printf("                \r");
-    fflush(stdout);
+        printf("square: %s", b1 & (1 << 4) ? "ON" : "OFF");
+        printf("cross: %s", b1 & (1 << 5) ? "ON" : "OFF");
+        printf("circle: %s", b1 & (1 << 6) ? "ON" : "OFF");
+        printf("triangle: %s", b1 & (1 << 7) ? "ON" : "OFF");
+
+        if (b2 & (1 << 0)) printf("L1 ");
+        if (b2 & (1 << 1)) printf("R1 ");
+        if (b2 & (1 << 6)) printf("L3 ");
+
+        if (d[11] != 0 || d[12] != 0) printf("L2:%3d R2:%3d", d[11], d[12]);
+        printf("                \r");
+        fflush(stdout);
+
+        vTaskDelay(pdMS_TO_TICKS(100)); 
+    }
 }
 
 void app_main(void)

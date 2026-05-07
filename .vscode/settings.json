@@ -11,5 +11,6 @@
     "--background-index",
     "--query-driver=**",
     "--compile-commands-dir=/home/bledow/DS4_ESP32-wroom_comunicacao/build"
-  ]
+  ],
+  "idf.flashType": "UART"
 }

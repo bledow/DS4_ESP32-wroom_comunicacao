@@ -414,9 +414,26 @@ void ds4_read_task(void *arg)
                     printf("Relatório: 0x%02X\n", buffer[0]);
                     continue;
                 }
-                xSemaphoreTake(ds4_data_semaphore, portMAX_DELAY);
-                parse_ds4(buffer);
-                xSemaphoreGive(ds4_data_semaphore);
+
+                if (buffer[4] != 128 || buffer[5] != 128)
+                    printf("LX:%3d LY:%3d | ", buffer[4], buffer[5]);
+
+                printf("square: %s", buffer[8] & (1 << 4) ? "ON" : "OFF");
+                printf("cross: %s", buffer[8] & (1 << 5) ? "ON" : "OFF");
+                printf("circle: %s", buffer[8] & (1 << 6) ? "ON" : "OFF");
+                printf("triangle: %s", buffer[8] & (1 << 7) ? "ON" : "OFF");
+
+                if (buffer[9] & (1 << 0))
+                    printf("L1 ");
+                if (buffer[9] & (1 << 1))
+                    printf("R1 ");
+                if (buffer[9] & (1 << 6))
+                    printf("L3 ");
+
+                if (buffer[11] != 0 || buffer[12] != 0)
+                    printf("L2:%3d R2:%3d", buffer[11], buffer[12]);
+                printf("                \r");
+                fflush(stdout);
             }
             else if (len < 0)
             {
@@ -429,58 +446,6 @@ void ds4_read_task(void *arg)
 
     read_task_started = false;
     vTaskDelete(NULL);
-}
-
-void parse_ds4(uint8_t *d)
-{
-    printf("Entrou no parse_ds4 com o relatório 0x%02X\n", d[0]);
-
-    uint8_t b1 = d[8];
-    uint8_t b2 = d[9];
-
-    /* while(1){
-        if (d[4] != 128 || d[5] != 128) printf("LX:%3d LY:%3d | ", d[4], d[5]);
-
-        if (b1 & (1 << 4))   printf("[ ] ");
-        if (b1 & (1 << 5))    printf("X ");
-        if (b1 & (1 << 6))   printf("O ");
-        if (b1 & (1 << 7)) printf("/\\ ");
-
-        if (b2 & (1 << 0)) printf("L1 ");
-        if (b2 & (1 << 1)) printf("R1 ");
-        if (b2 & (1 << 6)) printf("L3 ");
-
-        if (d[11] != 0 || d[12] != 0) printf("L2:%3d R2:%3d", d[11], d[12]);
-        printf("                \r");
-        fflush(stdout);
-
-        vTaskDelay(pdMS_TO_TICKS(100));
-    } */
-
-    while (1)
-    {
-        if (d[4] != 128 || d[5] != 128)
-            printf("LX:%3d LY:%3d | ", d[4], d[5]);
-
-        printf("square: %s", b1 & (1 << 4) ? "ON" : "OFF");
-        printf("cross: %s", b1 & (1 << 5) ? "ON" : "OFF");
-        printf("circle: %s", b1 & (1 << 6) ? "ON" : "OFF");
-        printf("triangle: %s", b1 & (1 << 7) ? "ON" : "OFF");
-
-        if (b2 & (1 << 0))
-            printf("L1 ");
-        if (b2 & (1 << 1))
-            printf("R1 ");
-        if (b2 & (1 << 6))
-            printf("L3 ");
-
-        if (d[11] != 0 || d[12] != 0)
-            printf("L2:%3d R2:%3d", d[11], d[12]);
-        printf("                \r");
-        fflush(stdout);
-
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
 }
 
 void app_main(void)

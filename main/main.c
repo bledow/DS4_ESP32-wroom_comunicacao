@@ -12,10 +12,11 @@
 #include "esp_gap_bt_api.h"
 #include "esp_hidh_api.h"
 
-static const char *TAG = "TESTE_HID_2";
+static const char *TAG = "TESTE_HID_3";
 
 static esp_bd_addr_t s_ds4_bda = {0};
 static bool s_ds4_found = false;
+static bool s_connect_started = false;
 
 static void print_bda(const char *prefix, esp_bd_addr_t bda)
 {
@@ -67,6 +68,33 @@ static bool get_name_from_eir(uint8_t *eir, char *name, size_t name_size)
     return true;
 }
 
+static void start_hid_connection(void)
+{
+    if (!s_ds4_found) {
+        ESP_LOGW(TAG, "Nao ha controle salvo para conectar");
+        return;
+    }
+
+    if (s_connect_started) {
+        ESP_LOGW(TAG, "Conexao ja foi iniciada, ignorando nova tentativa");
+        return;
+    }
+
+    s_connect_started = true;
+
+    print_bda("Iniciando conexao HID com:", s_ds4_bda);
+
+    esp_err_t ret = esp_bt_hid_host_connect(s_ds4_bda);
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Erro ao chamar esp_bt_hid_host_connect: %s", esp_err_to_name(ret));
+        s_connect_started = false;
+    } else {
+        ESP_LOGI(TAG, "esp_bt_hid_host_connect chamado com sucesso");
+        ESP_LOGI(TAG, "Agora aguarde o evento ESP_HIDH_OPEN_EVT");
+    }
+}
+
 static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch (event) {
@@ -79,9 +107,10 @@ static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *par
 
             if (s_ds4_found) {
                 print_bda("Controle encontrado no endereco:", s_ds4_bda);
-                ESP_LOGI(TAG, "Teste 2 passou: o ESP32 encontrou o controle");
+                ESP_LOGI(TAG, "Agora vamos tentar conectar via HID Host");
+                start_hid_connection();
             } else {
-                ESP_LOGW(TAG, "Teste 2 ainda nao passou: controle nao encontrado");
+                ESP_LOGW(TAG, "Controle nao encontrado");
                 ESP_LOGW(TAG, "Coloque o DS4 em pareamento: SHARE + PS ate piscar");
             }
         }
@@ -92,6 +121,7 @@ static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *par
         char nome[ESP_BT_GAP_MAX_BDNAME_LEN + 1] = {0};
         int8_t rssi = 0;
         uint32_t cod = 0;
+
         bool tem_nome = false;
         bool tem_rssi = false;
         bool tem_cod = false;
@@ -143,16 +173,20 @@ static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *par
 
         ESP_LOGI(
             TAG,
-            "Dispositivo encontrado: %02X:%02X:%02X:%02X:%02X:%02X | nome='%s'%s%d%s0x%06lX",
+            "Dispositivo: %02X:%02X:%02X:%02X:%02X:%02X | nome='%s'",
             param->disc_res.bda[0], param->disc_res.bda[1],
             param->disc_res.bda[2], param->disc_res.bda[3],
             param->disc_res.bda[4], param->disc_res.bda[5],
-            tem_nome ? nome : "<sem_nome>",
-            tem_rssi ? " | RSSI=" : "",
-            tem_rssi ? rssi : 0,
-            tem_cod ? " | COD=" : "",
-            tem_cod ? cod : 0
+            tem_nome ? nome : "<sem_nome>"
         );
+
+        if (tem_rssi) {
+            ESP_LOGI(TAG, "RSSI: %d", rssi);
+        }
+
+        if (tem_cod) {
+            ESP_LOGI(TAG, "COD: 0x%06lX", (unsigned long) cod);
+        }
 
         if (tem_nome && strcmp(nome, "Wireless Controller") == 0) {
             ESP_LOGI(TAG, "Controle DualShock 4 localizado pelo nome");
@@ -162,12 +196,50 @@ static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *par
 
             print_bda("Endereco do controle:", s_ds4_bda);
 
-            ESP_LOGI(TAG, "Cancelando scan. Neste teste ainda nao vamos conectar.");
+            ESP_LOGI(TAG, "Cancelando scan antes de conectar");
             esp_bt_gap_cancel_discovery();
         }
 
         break;
     }
+
+    case ESP_BT_GAP_AUTH_CMPL_EVT:
+        if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
+            ESP_LOGI(TAG, "Pareamento/autenticacao concluido com sucesso");
+            ESP_LOGI(TAG, "Nome autenticado: %s", param->auth_cmpl.device_name);
+        } else {
+            ESP_LOGE(TAG, "Falha no pareamento/autenticacao. Status: %d", param->auth_cmpl.stat);
+        }
+        break;
+
+    case ESP_BT_GAP_CFM_REQ_EVT:
+        ESP_LOGI(TAG, "Pedido de confirmacao SSP recebido");
+        ESP_LOGI(TAG, "Valor numerico: %lu", (unsigned long) param->cfm_req.num_val);
+        ESP_LOGI(TAG, "Confirmando automaticamente");
+        esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
+        break;
+
+    case ESP_BT_GAP_PIN_REQ_EVT:
+    {
+        ESP_LOGI(TAG, "Pedido de PIN recebido");
+
+        esp_bt_pin_code_t pin_code;
+        memset(pin_code, '0', ESP_BT_PIN_CODE_LEN);
+
+        uint8_t pin_len = param->pin_req.min_16_digit ? 16 : 4;
+
+        ESP_LOGI(TAG, "Respondendo PIN com %d zeros", pin_len);
+        esp_bt_gap_pin_reply(param->pin_req.bda, true, pin_len, pin_code);
+        break;
+    }
+
+    case ESP_BT_GAP_KEY_NOTIF_EVT:
+        ESP_LOGI(TAG, "Passkey notificado: %lu", (unsigned long) param->key_notif.passkey);
+        break;
+
+    case ESP_BT_GAP_KEY_REQ_EVT:
+        ESP_LOGW(TAG, "Controle pediu passkey. Neste teste nao vamos tratar entrada manual.");
+        break;
 
     default:
         ESP_LOGI(TAG, "Evento GAP recebido: %d", event);
@@ -202,6 +274,58 @@ static void hidh_callback(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param)
 
         break;
 
+    case ESP_HIDH_OPEN_EVT:
+        ESP_LOGI(TAG, "ESP_HIDH_OPEN_EVT recebido");
+        ESP_LOGI(TAG, "Status open: %d", param->open.status);
+        ESP_LOGI(TAG, "Conn status: %d", param->open.conn_status);
+        ESP_LOGI(TAG, "Handle: %d", param->open.handle);
+        ESP_LOGI(TAG, "Conexao iniciada pelo host? %s", param->open.is_orig ? "sim" : "nao");
+        print_bda("Endereco conectado:", param->open.bd_addr);
+
+        if (param->open.status == ESP_HIDH_OK &&
+            param->open.conn_status == ESP_HIDH_CONN_STATE_CONNECTED) {
+
+            ESP_LOGI(TAG, "SUCESSO: controle conectado via HID Host");
+            ESP_LOGI(TAG, "Agora mexa nos analogicos e aperte botoes");
+            ESP_LOGI(TAG, "Se chegarem reports, veremos ESP_HIDH_DATA_IND_EVT");
+        } else {
+            ESP_LOGE(TAG, "Falha ao conectar HID");
+            ESP_LOGE(TAG, "Status=%d | ConnStatus=%d", param->open.status, param->open.conn_status);
+        }
+
+        break;
+
+    case ESP_HIDH_DATA_IND_EVT:
+        ESP_LOGI(TAG, "ESP_HIDH_DATA_IND_EVT recebido");
+        ESP_LOGI(TAG, "Status: %d", param->data_ind.status);
+        ESP_LOGI(TAG, "Handle: %d", param->data_ind.handle);
+        ESP_LOGI(TAG, "Proto mode: %d", param->data_ind.proto_mode);
+        ESP_LOGI(TAG, "Len: %d", param->data_ind.len);
+
+        if (param->data_ind.len > 0 && param->data_ind.data != NULL) {
+            ESP_LOGI(TAG, "Primeiro byte/report id: 0x%02X", param->data_ind.data[0]);
+            ESP_LOG_BUFFER_HEX(TAG, param->data_ind.data, param->data_ind.len);
+        }
+        break;
+
+    case ESP_HIDH_CLOSE_EVT:
+        ESP_LOGW(TAG, "ESP_HIDH_CLOSE_EVT recebido");
+        ESP_LOGW(TAG, "Status close: %d", param->close.status);
+        ESP_LOGW(TAG, "Reason: %d", param->close.reason);
+        ESP_LOGW(TAG, "Conn status: %d", param->close.conn_status);
+        ESP_LOGW(TAG, "Handle: %d", param->close.handle);
+        s_connect_started = false;
+        break;
+
+    case ESP_HIDH_GET_DSCP_EVT:
+        ESP_LOGI(TAG, "ESP_HIDH_GET_DSCP_EVT recebido");
+        ESP_LOGI(TAG, "Status descriptor: %d", param->dscp.status);
+        ESP_LOGI(TAG, "Vendor ID: 0x%04X", param->dscp.vendor_id);
+        ESP_LOGI(TAG, "Product ID: 0x%04X", param->dscp.product_id);
+        ESP_LOGI(TAG, "Version: 0x%04X", param->dscp.version);
+        ESP_LOGI(TAG, "Descriptor length: %d", param->dscp.dl_len);
+        break;
+
     default:
         ESP_LOGI(TAG, "Evento HID recebido: %d", event);
         break;
@@ -214,8 +338,8 @@ void app_main(void)
 
     printf("\n");
     printf("========================================\n");
-    printf("ESP32 DualShock 4 Receiver - Teste HID 2\n");
-    printf("Scan Bluetooth Classic\n");
+    printf("ESP32 DualShock 4 Receiver - Teste HID 3\n");
+    printf("Scan + Connect HID Host\n");
     printf("========================================\n\n");
 
     ret = nvs_flash_init();
@@ -253,6 +377,21 @@ void app_main(void)
         "Endereco Bluetooth do ESP32: %02X:%02X:%02X:%02X:%02X:%02X",
         bt_addr[0], bt_addr[1], bt_addr[2],
         bt_addr[3], bt_addr[4], bt_addr[5]
+    );
+
+    /*
+        Configuracao simples de seguranca.
+
+        ESP_BT_IO_CAP_NONE significa que o ESP32 nao tem tela nem teclado
+        para confirmar codigos manualmente.
+    */
+    esp_bt_io_cap_t iocap = ESP_BT_IO_CAP_NONE;
+    ESP_ERROR_CHECK(
+        esp_bt_gap_set_security_param(
+            ESP_BT_SP_IOCAP_MODE,
+            &iocap,
+            sizeof(uint8_t)
+        )
     );
 
     ESP_LOGI(TAG, "Registrando callback GAP");
